@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db, storage } from '../../firebase/config';
-import { collection, addDoc, getDocs, doc, updateDoc, increment, query, where } from 'firebase/firestore';
+import { collection, addDoc, getDocs, doc, updateDoc, increment, query, where, serverTimestamp } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { Link } from 'react-router-dom';
 
@@ -12,7 +12,7 @@ export default function AdminAddProduct() {
   // États pour les données
   const [formData, setFormData] = useState({
     Nom: '',
-    Categorie: 'Performance',
+    Categorie: '',
     Prix: '',
     Poids: '',
     Stock: '',
@@ -29,7 +29,13 @@ export default function AdminAddProduct() {
   useEffect(() => {
     const fetchCategories = async () => {
       const snap = await getDocs(collection(db, "categories"));
-      setCategories(snap.docs.map(doc => doc.data().Nom));
+      const cats = snap.docs.map(doc => doc.data().Nom);
+      setCategories(cats);
+      
+      // Correction : Si on a des catégories, on sélectionne la première par défaut
+      if (cats.length > 0) {
+        setFormData(prev => ({ ...prev, Categorie: cats[0] }));
+      }
     };
     fetchCategories();
   }, []);
@@ -75,15 +81,35 @@ export default function AdminAddProduct() {
       const url = await getDownloadURL(storageRef);
 
       // B. Envoi des données texte + URL de l'image
-      await addDoc(collection(db, "produits"), {
-        ...formData,
-        Prix: Number(formData.Prix),
-        Poids: Number(formData.Poids),
-        Stock: Number(formData.Stock),
-        image: url,
-        createdAt: new Date()
-      });
+      const stockInitial = Number(formData.Stock) || 0;
+      const prixInitial = Number(formData.Prix) || 0;
 
+      const productData = {
+        ...formData,
+        Categorie: formData.Categorie,
+        Prix: prixInitial,
+        Poids: Number(formData.Poids) || 0,
+        Stock: stockInitial,
+        image: url,
+        createdAt: serverTimestamp()
+      };
+
+      const docRef = await addDoc(collection(db, "produits"), productData);
+      // C. CRÉATION DU MOUVEMENT DE STOCK INITIAL
+      // Si le stock initial est > 0, on enregistre l'entrée
+      if (Number(formData.Stock) > 0) {
+        await addDoc(collection(db, "MouvementsStock"), {
+          Produit: formData.Nom,
+          ProductId: docRef.id, // On utilise l'ID qu'on vient de générer
+          Quantite: stockInitial,
+          PrixUnitaire: prixInitial,
+          Motif: "Ajout initial du produit",
+          TypeMouvement: "Entrée",
+          DateAjout: serverTimestamp()
+        });
+      }
+      
+      // D. Mise à jour des compteurs de catégorie
       await updateCategoryCount(formData.Categorie, 1);
 
       navigate('/admin/products');
@@ -130,12 +156,24 @@ export default function AdminAddProduct() {
             </div>
             
             <div className="space-y-2">
-              <label className="text-xs font-black uppercase text-secondary tracking-widest px-1">Catégorie</label>
+              <label className="text-xs font-black uppercase text-secondary tracking-widest px-1">
+                Catégorie
+              </label>
               <select 
+                required
+                // On lie la valeur à l'état pour que React sache toujours ce qui est sélectionné
+                value={formData.Categorie} 
                 className="w-full bg-slate-50 border-none rounded-2xl p-4 focus:ring-2 focus:ring-primary font-medium"
                 onChange={(e) => setFormData({...formData, Categorie: e.target.value})}
               >
-                {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                {/* Option vide pour forcer l'utilisateur à choisir s'il n'y a pas encore de sélection */}
+                {/* <option value="" disabled>Sélectionner une catégorie</option> */}
+                
+                {categories.map(cat => (
+                  <option key={cat} value={cat}>
+                    {cat}
+                  </option>
+                ))}
               </select>
             </div>
 

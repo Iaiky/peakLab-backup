@@ -1,37 +1,63 @@
-import { useState } from 'react';
-import productsData from "../../assets/products";
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import { db } from '../../firebase/config';
+import { doc, collection, runTransaction, serverTimestamp } from 'firebase/firestore';
+import { useInventoryPagination } from '../../hooks/useInventoryPagination';
+import  PaginationHistory  from '../../components/history/PaginationsHistory'
 
 export default function AdminInventory() {
+
+  const { 
+    data: products, 
+    loading, 
+    page, 
+    hasNext, 
+    setPage, 
+    searchInput, 
+    setSearchInput, 
+    updateFilters 
+  } = useInventoryPagination(5);
+
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [movementType, setMovementType] = useState('IN'); 
+  const [movementType, setMovementType] = useState('IN');
   const [quantity, setQuantity] = useState(1);
+  const [unitPrice, setUnitPrice] = useState('');
   const [comment, setComment] = useState("");
-
-  // 1. État pour la pagination
-  const [currentPage, setCurrentPage] = useState(1);
-  const ordersPerPage = 5; // Nombre de commandes par page
-
-  // 2. Logique de calcul de la pagination
-  const indexOfLastOrder = currentPage * ordersPerPage;
-  const indexOfFirstOrder = indexOfLastOrder - ordersPerPage;
-  const currentOrders = productsData.slice(indexOfFirstOrder, indexOfLastOrder);
-  const totalPages = Math.ceil(productsData.length / ordersPerPage);
 
   const openMovementModal = (product, type) => {
     setSelectedProduct(product);
     setMovementType(type);
-    setQuantity(1);
-    setComment("");
     setIsModalOpen(true);
   };
 
-  const handleConfirm = (e) => {
+  const handleConfirm = async (e) => {
     e.preventDefault();
-    if (!comment.trim()) return alert("Commentaire obligatoire !");
-    console.log(`Action: ${movementType}, Qté: ${quantity}, Produit: ${selectedProduct.name}`);
-    setIsModalOpen(false);
+    try {
+      const productRef = doc(db, "produits", selectedProduct.id);
+      await runTransaction(db, async (transaction) => {
+        const productDoc = await transaction.get(productRef);
+        const currentStock = Number(productDoc.data().Stock) || 0;
+        const moveQty = Number(quantity);
+        
+        let newStock = movementType === 'IN' ? currentStock + moveQty : currentStock - moveQty;
+        if (movementType === 'OUT' && currentStock < moveQty) throw "Stock insuffisant !";
+
+        transaction.update(productRef, { Stock: newStock });
+        const movementRef = doc(collection(db, "MouvementsStock"));
+        transaction.set(movementRef, {
+          Produit: selectedProduct.Nom,
+          ProductId: selectedProduct.id,
+          Quantite: moveQty,
+          PrixUnitaire: Number(unitPrice),
+          Motif: comment,
+          TypeMouvement: movementType === 'IN' ? "Entrée" : "Sortie",
+          DateAjout: serverTimestamp()
+        });
+      });
+      setIsModalOpen(false);
+      // Optionnel: Recharger les données ou laisser le cache Firestore gérer
+    } catch (error) { alert(error); }
   };
 
   return (
@@ -48,19 +74,41 @@ export default function AdminInventory() {
         {/* ZONE ACTIONS : RECHERCHE + BOUTON */}
         <div className="flex flex-col sm:flex-row w-full lg:w-auto gap-3">
           
-          {/* BARRE DE RECHERCHE */}
-          <div className="relative flex-1 sm:w-64 md:w-80">
-            <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none">
-              <svg className="w-4 h-4 text-slate-400 group-focus-within:text-primary transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
-            </div>
-            <input 
-              type="text"
-              placeholder="Rechercher..."
-              className="w-full bg-white border border-slate-200 rounded-2xl px-10 py-3 text-sm font-bold shadow-sm focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all"
-              onChange={(e) => {/* Ta fonction de recherche ici */}}
-            />
+          {/* BARRE DE RECHERCHE*/}
+          <div className="relative group w-full">
+            <form 
+              onSubmit={(e) => { e.preventDefault(); updateFilters(searchInput); }} 
+              className="relative group w-full"
+            >
+              {/* L'icône Loupe avec effet de couleur au focus */}
+              <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none">
+                <svg
+                  className="w-4 h-4 text-slate-400 group-focus-within:text-primary transition-colors"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2.5"
+                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                  />
+                </svg>
+              </div>
+
+              {/* L'Input stylisé */}
+              <input
+                type="text"
+                placeholder="Rechercher un produit..."
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                className="w-full bg-white border-none rounded-2xl py-4 pl-11 pr-4 text-xs shadow-sm focus:ring-2 focus:ring-primary/20 placeholder:text-slate-400 transition-all font-medium"
+              />
+
+              {/* Bouton invisible pour valider le formulaire via "Entrée" */}
+              <button type="submit" className="hidden">Rechercher</button>
+            </form>
           </div>
 
           {/* BOUTON HISTORIQUE */}
@@ -78,24 +126,24 @@ export default function AdminInventory() {
   
         {/* --- VUE MOBILE : CARDS (Affiche toutes les colonnes) --- */}
         <div className="grid grid-cols-1 gap-4 md:hidden">
-          {productsData.map((product) => (
+          {products.map((product) => (
             <div key={product.id} className="bg-white p-5 rounded-[2rem] border border-slate-100 shadow-sm space-y-4">
               
               {/* Ligne 1 : Référence / Produit */}
               <div className="flex justify-between items-start">
                 <div className="min-w-0">
                   <p className="text-[10px] text-secondary font-black uppercase tracking-widest mb-1">Référence</p>
-                  <p className="font-black text-slate-900 text-base truncate">{product.name}</p>
-                  <p className="text-[10px] text-primary font-bold uppercase">{product.category}</p>
+                  <p className="font-black text-slate-900 text-base truncate">{product.Nom}</p>
+                  <p className="text-[10px] text-primary font-bold uppercase">{product.Categorie}</p>
                 </div>
                 
                 {/* Ligne 2 : Stock (Intégré en haut à droite) */}
                 <div className="text-right whitespace-nowrap">
                   <p className="text-[10px] text-secondary font-black uppercase tracking-widest mb-1">Stock</p>
                   <span className={`inline-block px-3 py-1 rounded-lg text-[11px] font-black ${
-                    product.stock < 10 ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'
+                    Number(product.Stock) < 10 ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'
                   }`}>
-                    {product.stock} pcs
+                    {product.Stock || 0} pcs
                   </span>
                 </div>
               </div>
@@ -130,17 +178,17 @@ export default function AdminInventory() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {productsData.map((product) => (
+              {products.map((product) => (
                 <tr key={product.id} className="hover:bg-slate-50/50 transition-colors">
                   <td className="px-8 py-5">
-                    <p className="font-bold text-slate-900 text-sm">{product.name}</p>
-                    <p className="text-[10px] text-secondary font-medium uppercase">{product.category}</p>
+                    <p className="font-bold text-slate-900 text-sm">{product.Nom}</p>
+                    <p className="text-[10px] text-secondary font-medium uppercase">{product.Categorie}</p>
                   </td>
                   <td className="px-6 py-5">
                     <span className={`inline-block px-3 py-1 rounded-full text-[10px] font-black ${
-                      product.stock < 10 ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'
+                      Number(product.Stock) < 10 ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'
                     }`}>
-                      {product.stock} en stock
+                      {product.Stock || 0} en stock
                     </span>
                   </td>
                   <td className="px-8 py-5 text-right">
@@ -166,41 +214,15 @@ export default function AdminInventory() {
         </div>
 
         {/* BARRE DE PAGINATION (Adaptée) */}
-          {totalPages > 1 && (
-            <div className="mt-6 md:mt-0 p-6 md:bg-slate-50/50 border-t border-slate-100 flex justify-center items-center gap-2">
-              <div className="p-6 bg-slate-50/50 border-t border-slate-100 flex justify-center items-center gap-2">
-                <button 
-                  onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                  disabled={currentPage === 1}
-                  className="p-2 text-slate-400 hover:text-primary disabled:opacity-30 transition"
-                >
-                  ←
-                </button>
-                
-                {Array.from({ length: totalPages }, (_, i) => (
-                  <button
-                    key={i + 1}
-                    onClick={() => setCurrentPage(i + 1)}
-                    className={`w-8 h-8 rounded-lg text-xs font-black transition-all ${
-                      currentPage === i + 1 
-                      ? 'bg-primary text-white shadow-lg shadow-primary/20 scale-110' 
-                      : 'bg-white text-slate-400 border border-slate-200 hover:border-primary/30'
-                    }`}
-                  >
-                    {i + 1}
-                  </button>
-                ))}
-
-                <button 
-                  onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-                  disabled={currentPage === totalPages}
-                  className="p-2 text-slate-400 hover:text-primary disabled:opacity-30 transition"
-                >
-                  →
-                </button>
-              </div>
-            </div>
-          )}
+          {/* PAGINATION */}
+          <PaginationHistory 
+            page={page} 
+            hasNext={hasNext} 
+            loading={loading}
+            show={true}
+            onPrev={() => setPage(page - 1)} // On passe le chiffre directement
+            onNext={() => setPage(page + 1)} // On passe le chiffre directement
+          />
       </div>
 
       {/* MODAL RESPONSIVE */}
@@ -215,17 +237,45 @@ export default function AdminInventory() {
             <p className="text-secondary text-xs md:text-sm font-medium mb-6">{selectedProduct?.name}</p>
 
             <form onSubmit={handleConfirm} className="space-y-4 md:space-y-5">
-              <div className="space-y-1">
-                <label className="text-[9px] font-black uppercase text-secondary tracking-widest px-1">Quantité</label>
-                <input 
-                  type="number" 
-                  min="1"
-                  value={quantity}
-                  onChange={(e) => setQuantity(e.target.value)}
-                  className="w-full bg-slate-50 border-none rounded-xl md:rounded-2xl p-3 md:p-4 focus:ring-2 focus:ring-primary font-bold text-base md:text-lg" 
-                />
+              
+              <div className="grid grid-cols-2 gap-4">
+                {/* CHAMP QUANTITÉ */}
+                <div className="space-y-1">
+                  <label className="text-[9px] font-black uppercase text-secondary tracking-widest px-1">Quantité</label>
+                  <input 
+                    type="number" 
+                    min="1"
+                    required
+                    value={quantity}
+                    onChange={(e) => setQuantity(e.target.value)}
+                    className="w-full bg-slate-50 border-none rounded-xl md:rounded-2xl p-3 md:p-4 focus:ring-2 focus:ring-primary font-bold text-base md:text-lg" 
+                  />
+                </div>
+
+                {/* CHAMP PRIX UNITAIRE */}
+                <div className="space-y-1">
+                  <label className="text-[9px] font-black uppercase text-secondary tracking-widest px-1">Prix Unitaire (Ar)</label>
+                  <input 
+                    type="number" 
+                    min="0"
+                    required
+                    placeholder="0"
+                    value={unitPrice}
+                    onChange={(e) => setUnitPrice(e.target.value)}
+                    className="w-full bg-slate-50 border-none rounded-xl md:rounded-2xl p-3 md:p-4 focus:ring-2 focus:ring-primary font-bold text-base md:text-lg text-primary" 
+                  />
+                </div>
               </div>
 
+              {/* AFFICHAGE DU TOTAL CALCULÉ */}
+              {quantity > 0 && unitPrice > 0 && (
+                <div className="bg-primary/5 p-3 rounded-xl border border-primary/10 flex justify-between items-center">
+                  <span className="text-[10px] font-black uppercase text-primary tracking-widest">Valeur totale</span>
+                  <span className="font-black text-primary text-lg">{(quantity * unitPrice).toLocaleString('fr-FR')} Ar</span>
+                </div>
+              )}
+
+              {/* CHAMP RAISON */}
               <div className="space-y-1">
                 <label className="text-[9px] font-black uppercase text-secondary tracking-widest px-1">Raison / Commentaire</label>
                 <textarea 

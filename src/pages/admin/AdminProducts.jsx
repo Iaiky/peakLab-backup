@@ -1,70 +1,56 @@
 import { useState, useEffect } from 'react';
-import productsData from "../../assets/products";
+import { useAdminProduct } from '../../hooks/useAdminProduct';
 import { Link } from 'react-router-dom';
 import { db, storage } from '../../firebase/config'
 import { collection, getDocs, doc, deleteDoc, updateDoc, increment, query, where } from 'firebase/firestore'
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import AdminProductDetailModal from '../../components/admin/AdminProductDetailModal'
+import PaginationHistory from '../../components/history/PaginationsHistory';
 
 export default function AdminProducts() {
-  const [searchTerm, setSearchTerm] = useState("");
-  const [products, setProducts] = useState([]); 
-  const [loading, setLoading] = useState(true);
+
+  const {
+    products, 
+    allProducts, 
+    loading, 
+    page, 
+    hasNext, 
+    setPage,
+    searchInput, 
+    setSearchInput, 
+    updateFilters, 
+    activeCategory, 
+    activeSearch,
+    setAllProducts
+  } = useAdminProduct(5);
+
+  // --- ÉTATS D'INTERFACE UNIQUEMENT ---
   const [selectedProduct, setSelectedProduct] = useState(null);
-
-  //Edit
   const [editingProduct, setEditingProduct] = useState(null);
-
-  const [selectedCategory, setSelectedCategory] = useState("Toutes les catégories");
   const [categories, setCategories] = useState([]);
+  const [tempCategory, setTempCategory] = useState(activeCategory);
 
-  // --- ÉTATS POUR LA PAGINATION ---
-  const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 5; // Tu peux changer ce nombre selon tes besoins
 
-  // 4. Fonction pour récupérer les données
+  // EFFECT 1 : Charger la liste des catégories depuis Firebase (AU DÉMARRAGE)
   useEffect(() => {
-    const fetchProducts = async () => {
-      try {
-        const querySnapshot = await getDocs(collection(db, "produits"));
-        const items = querySnapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        }));
-        // console.log("Mes produits Firebase :", items);
-        setProducts(items);
-        setLoading(false);
-      } catch (error) {
-        console.error("Erreur Firebase:", error);
-        setLoading(false);
-      }
-    };
-
     const fetchCategories = async () => {
       try {
         const querySnapshot = await getDocs(collection(db, "categories"));
-        const cats = querySnapshot.docs.map(doc => doc.data().Nom); // On récupère juste le nom
+        // On extrait le champ "Nom" de chaque document
+        const cats = querySnapshot.docs.map(doc => doc.data().Nom);
         setCategories(cats);
       } catch (error) {
-        console.error("Erreur categories:", error);
+        console.error("Erreur chargement catégories:", error);
       }
     };
-
-    fetchProducts();
     fetchCategories();
-  }, []);
+  }, []); // [] signifie : s'exécute une seule fois au chargement de la page
 
-  const updateCategoryCount = async (categoryName, value) => {
-    if (!categoryName) return;
-    const q = query(collection(db, "categories"), where("Nom", "==", categoryName));
-    const querySnapshot = await getDocs(q);
-    if (!querySnapshot.empty) {
-      const catDoc = querySnapshot.docs[0];
-      await updateDoc(doc(db, "categories", catDoc.id), {
-        count: increment(value)
-      });
-    }
-  };
+  // EFFECT 2 : Synchroniser les inputs locaux avec l'URL (BACK/FORWARD NAV)
+  useEffect(() => {
+    setSearchInput(activeSearch || "");
+    setTempCategory(activeCategory || "Toutes les catégories");
+  }, [activeSearch, activeCategory]);
 
   const handleFileSelect = (file) => {
     if (!file) return;
@@ -78,67 +64,81 @@ export default function AdminProducts() {
     });
   };
 
-  // Update produits
+  const updateCategoryCount = async (categoryName, value) => {
+    if (!categoryName) return;
+    const q = query(collection(db, "categories"), where("Nom", "==", categoryName));
+    const querySnapshot = await getDocs(q);
+    if (!querySnapshot.empty) {
+      const catDoc = querySnapshot.docs[0];
+      await updateDoc(doc(db, "categories", catDoc.id), {
+        count: increment(value)
+      });
+    }
+  };
+
+  // --- LOGIQUE DE MISE À JOUR (CRUD) ---
   const handleUpdate = async (e) => {
     e.preventDefault();
-    const oldProduct = products.find(p => p.id === editingProduct.id);
+
+    // 1. On retrouve l'ancien produit pour comparer la catégorie (utile pour les compteurs)
+    const oldProduct = allProducts.find((p) => p.id === editingProduct.id);
+    if (!oldProduct) return;
 
     try {
       let finalImageUrl = editingProduct.image;
 
-      // 1. Si un nouveau fichier a été sélectionné, on l'uploade
+      // 2. Gestion de l'image (Firebase Storage)
       if (editingProduct.newFile) {
         const storageRef = ref(storage, `produits/${editingProduct.id}_${Date.now()}`);
         const snapshot = await uploadBytes(storageRef, editingProduct.newFile);
         finalImageUrl = await getDownloadURL(snapshot.ref);
       }
 
-      // 2. Mise à jour Firestore
+      // 3. Préparation des données pour Firestore
       const productRef = doc(db, "produits", editingProduct.id);
       const updatedFields = {
         Nom: editingProduct.Nom,
         Prix: Number(editingProduct.Prix),
         Stock: Number(editingProduct.Stock),
         Categorie: editingProduct.Categorie,
-        image: finalImageUrl // L'URL finale (Storage ou ancienne URL)
+        image: finalImageUrl,
       };
 
+      // 4. Mise à jour effective dans Firestore
       await updateDoc(productRef, updatedFields);
 
-      // 3. Logique des catégories (ton code existant)
+      // 5. Mise à jour des compteurs de catégories si elle a changé
       if (oldProduct.Categorie !== editingProduct.Categorie) {
         await updateCategoryCount(oldProduct.Categorie, -1);
         await updateCategoryCount(editingProduct.Categorie, 1);
       }
 
-      // Mise à jour locale
-      setProducts(products.map(p => p.id === editingProduct.id ? { ...editingProduct, ...updatedFields } : p));
+      // 6. Mise à jour locale du Hook (pour rafraîchir le tableau immédiatement)
+      // On fusionne les anciens champs avec les nouveaux
+      const updatedProduct = { ...editingProduct, ...updatedFields };
+      delete updatedProduct.newFile; // On nettoie le fichier temporaire
+
+      setAllProducts(
+        allProducts.map((p) => (p.id === editingProduct.id ? updatedProduct : p))
+      );
+
+      // 7. Fermeture et succès
       setEditingProduct(null);
       alert("Produit mis à jour avec succès !");
     } catch (error) {
-      console.error("Erreur complète:", error);
+      console.error("Erreur lors de l'update:", error);
       alert("Erreur lors de l'enregistrement.");
     }
   };
 
-  //Delete produits
   const handleDelete = async (id, name, categoryName) => {
     if (window.confirm(`Voulez-vous vraiment supprimer ${name} ?`)) {
       try {
-        // 1. Supprimer dans Firebase
         await deleteDoc(doc(db, "produits", id));
+        await updateCategoryCount(categoryName, -1);
 
-        // 2. Diminuer le compteur de la catégorie
-      const q = query(collection(db, "categories"), where("Nom", "==", categoryName));
-      const snap = await getDocs(q);
-      if (!snap.empty) {
-        await updateDoc(doc(db, "categories", snap.docs[0].id), {
-          count: increment(-1) // On retire 1
-        });
-      }
-        
-        // 3. Mettre à jour l'affichage local (pour ne pas recharger la page)
-        setProducts(products.filter(p => p.id !== id));
+        // MAJ locale instantanée
+        setAllProducts((prev) => prev.filter(p => p.id !== id));
         
         alert("Produit supprimé !");
       } catch (error) {
@@ -146,25 +146,6 @@ export default function AdminProducts() {
       }
     }
   };
-
-  // Filtrage (toujours utile)
-  const filteredProducts = products.filter(p => {
-    // Condition 1 : Recherche par texte
-    const matchSearch = (p.Nom || "").toLowerCase().includes(searchTerm.toLowerCase());
-    
-    // Condition 2 : Recherche par catégorie
-    const matchCategory = selectedCategory === "Toutes les catégories" || p.Categorie === selectedCategory;
-
-    return matchSearch && matchCategory; // Il faut que les deux soient vrais
-  });
-
-  // 2. Calculs de la pagination
-  const totalPages = Math.ceil(filteredProducts.length / itemsPerPage);
-  const indexOfLastItem = currentPage * itemsPerPage;
-  const indexOfFirstItem = indexOfLastItem - itemsPerPage;
-  
-  // 3. On ne prend que les produits de la page actuelle
-  const currentProducts = filteredProducts.slice(indexOfFirstItem, indexOfLastItem);
 
   return (
     <div className="p-4 md:p-8">
@@ -186,31 +167,53 @@ export default function AdminProducts() {
       </div>
 
       {/* BARRE DE RECHERCHE ET FILTRES - Stacked sur mobile */}
-      <div className="bg-white p-3 md:p-4 rounded-2xl mb-6 shadow-sm border border-slate-100 flex flex-col md:flex-row gap-3 md:gap-4">
-        <div className="flex-1 relative">
+      <div className="bg-white p-3 md:p-4 rounded-2xl mb-6 shadow-sm border border-slate-100 flex flex-col md:flex-row gap-3 md:gap-4 items-center">
+        {/* Input de recherche */}
+        <div className="flex-1 w-full relative">
           <input 
             type="text" 
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && updateFilters(searchInput, tempCategory)}
             placeholder="Rechercher une référence..."
             className="w-full bg-slate-50 border-none rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-primary"
-            onChange={(e) => {
-                setSearchTerm(e.target.value);
-                setCurrentPage(1); // Reset à la page 1 quand on cherche
-            }}
           />
         </div>
+
+        {/* Select Catégorie (Ne déclenche plus updateFilters) */}
         <select 
           className="w-full md:w-auto bg-slate-50 border-none rounded-xl px-4 py-2 text-sm font-bold text-secondary outline-none"
-          value={selectedCategory}
-          onChange={(e) => {
-            setSelectedCategory(e.target.value);
-            setCurrentPage(1); // On reset la page à 1 quand on change de filtre
-          }}
+          value={tempCategory}
+          onChange={(e) => setTempCategory(e.target.value)} // On change juste l'état local ici
         >
           <option value="Toutes les catégories">Toutes les catégories</option>
-          {categories.map((cat, index) => (
-            <option key={index} value={cat}>{cat}</option>
-          ))}
+          {categories.map((cat, i) => <option key={i} value={cat}>{cat}</option>)}
         </select>
+
+        {/* Groupe de Boutons */}
+        <div className="flex w-full md:w-auto gap-2">
+          <button
+            onClick={() => updateFilters(searchInput, tempCategory)} // On applique tout ici
+            className="flex-1 md:flex-none bg-primary text-white px-5 py-2 rounded-xl text-sm font-bold shadow-md shadow-primary/10 hover:bg-primary/90 transition-all"
+          >
+            Filtrer
+          </button>
+
+          {/* Le bouton Réinitialiser s'affiche UNIQUEMENT si un filtre est actif dans l'URL */}
+          {(activeSearch !== "" || activeCategory !== "Toutes les catégories") && (
+            <button
+              onClick={() => {
+                setSearchInput("");
+                setTempCategory("Toutes les catégories");
+                updateFilters("", "Toutes les catégories");
+              }}
+              className="p-2 bg-red-50 text-red-500 rounded-xl hover:bg-red-100 transition-all border border-red-100"
+              title="Effacer les filtres"
+            >
+              ✕
+            </button>
+          )}
+        </div>
       </div>
 
       {/* TABLEAU DES PRODUITS - Scroll horizontal forcé sur mobile */}
@@ -221,7 +224,7 @@ export default function AdminProducts() {
           <>
             {/* --- VUE MOBILE : CARDS (Visible uniquement sur mobile < 768px) --- */}
             <div className="grid grid-cols-1 gap-4 md:hidden">
-              {currentProducts.map((product) => (
+              {products.map((product) => (
                 <div key={product.id} 
                 className="bg-white p-5 rounded-[1.5rem] shadow-sm border border-slate-100 relative"
                 onClick={() => setSelectedProduct(product)}
@@ -290,7 +293,7 @@ export default function AdminProducts() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {currentProducts.map((product) => (
+                  {products.map((product) => (
                     <tr 
                       key={product.id} 
                       className="hover:bg-slate-50/80 transition-colors group"
@@ -331,24 +334,16 @@ export default function AdminProducts() {
               </table>
             </div>
 
-            {/* --- PAGINATION (Commune aux deux vues) --- */}
-            {totalPages > 1 && (
-              <div className="mt-6 md:mt-0 p-6 bg-transparent md:bg-slate-50/50 md:border-t border-slate-100 flex justify-center items-center gap-2">
-                {Array.from({ length: totalPages }, (_, i) => (
-                  <button
-                    key={i + 1}
-                    onClick={() => setCurrentPage(i + 1)}
-                    className={`w-10 h-10 rounded-xl font-bold transition-all ${
-                      currentPage === i + 1 
-                      ? 'bg-primary text-white shadow-lg shadow-primary/20 scale-110' 
-                      : 'bg-white text-secondary border border-slate-200 hover:border-primary/50'
-                    }`}
-                  >
-                    {i + 1}
-                  </button>
-                ))}
-              </div>
-            )}
+            {/* PAGINATION SIMPLIFIÉE */}
+            <PaginationHistory 
+              page={page}
+              hasNext={hasNext}
+              loading={loading}
+              // On affiche la pagination seulement s'il y a plus d'une page possible
+              show={!loading && (page > 1 || hasNext)} 
+              onPrev={() => setPage(page - 1)}
+              onNext={() => setPage(page + 1)}
+            />
           </>
         )}
       </div>
@@ -421,15 +416,15 @@ export default function AdminProducts() {
                     onChange={(e) => setEditingProduct({...editingProduct, Prix: Number(e.target.value)})}
                   />
                 </div>
-                {/* <div className="col-span-1">
-                  <label className="text-[10px] font-bold uppercase text-slate-400">Stock</label>
+                <div className="col-span-1">
+                  <label className="text-[10px] font-bold uppercase text-slate-400">Poids (Kg)</label>
                   <input 
                     type="number"
                     className="w-full bg-slate-50 border-none rounded-xl p-3 mt-1"
-                    value={editingProduct.Stock}
-                    onChange={(e) => setEditingProduct({...editingProduct, Stock: Number(e.target.value)})}
+                    value={editingProduct.Poids}
+                    onChange={(e) => setEditingProduct({...editingProduct, Poids: Number(e.target.value)})}
                   />
-                </div> */}
+                </div>
                 <div className="col-span-2">
                   <label className="text-[10px] font-bold uppercase text-slate-400">Catégorie</label>
                   <select 

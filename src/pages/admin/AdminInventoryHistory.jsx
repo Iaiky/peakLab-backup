@@ -1,24 +1,53 @@
-import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from "react-router-dom";
+import { useMemo } from "react";
+import { useFirestoreHistory } from "../../hooks/useFirestoreHistory"
+import FiltersHistory from "../../components/history/FiltersHistory";
+import PaginationHistory from "../../components/history/PaginationsHistory";
 
 export default function AdminInventoryHistory() {
+  const { 
+    data: movements, 
+    loading, 
+    page, 
+    hasNext,
+    setPage,
+    searchInput, setSearchInput,
+    startDate, setStartDate,
+    endDate, setEndDate,
+    handleSearch, 
+    handleReset,
+    activeSearch, 
+    activeStart, 
+    activeEnd
+  } = useFirestoreHistory("MouvementsStock", { 
+        pageSize: 7, 
+        searchField: "Produit" 
+      });
 
-  const [movements] = useState([
-    { id: "MOV-001", date: "26/01/2026 10:15", product: "Whey Gold Standard", qty: 24, type: "Entrée", reason: "Arrivage fournisseur" },
-    { id: "MOV-002", date: "25/01/2026 16:40", product: "BCAA Amino", qty: -2, type: "Sortie", reason: "Commande ORD-8812" },
-    { id: "MOV-003", date: "24/01/2026 11:00", product: "Creatine 300g", qty: 50, type: "Entrée", reason: "Réapprovisionnement" },
-  ]);
+  const handlePrev = () => setPage(prev => Math.max(1, prev - 1));
+  const handleNext = () => setPage(prev => prev + 1);
 
-  // 1. État pour la pagination
-  const [currentPage, setCurrentPage] = useState(1);
-  const ordersPerPage = 7; // Nombre de commandes par page
+  const stats = useMemo(() => {
+    return movements.reduce(
+      (acc, m) => {
+        // Sécurité : on s'assure que ce sont bien des nombres
+        const q = Number(m.Quantite) || 0;
+        const pu = Number(m.PrixUnitaire) || 0;
+        const total = q * pu;
 
-  // 2. Logique de calcul de la pagination
-  const indexOfLastOrder = currentPage * ordersPerPage;
-  const indexOfFirstOrder = indexOfLastOrder - ordersPerPage;
-  const currentOrders = movements.slice(indexOfFirstOrder, indexOfLastOrder);
-  const totalPages = Math.ceil(movements.length / ordersPerPage);
-
+        if (m.TypeMouvement === "Entrée") {
+          acc.entrees += q;
+          acc.valeurEntrees += total;
+        } else if (m.TypeMouvement === "Sortie") {
+          acc.sorties += q;
+          acc.valeurSorties += total;
+        }
+        return acc;
+      },
+      { entrees: 0, sorties: 0, valeurEntrees: 0, valeurSorties: 0 }
+    );
+  }, [movements]);
+  
   return (
     <div className="p-4 md:p-8 bg-slate-50 min-h-screen pt-12 md:pt-8">
       <div className="max-w-6xl mx-auto space-y-6 md:space-y-8">
@@ -41,19 +70,58 @@ export default function AdminInventoryHistory() {
         </div>
 
         {/* BARRE DE RECHERCHE */}
-        <div className="relative flex-1 sm:w-64 md:w-80">
-          <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none">
-            <svg className="w-4 h-4 text-slate-400 group-focus-within:text-primary transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
+        <FiltersHistory
+          searchValue={searchInput}
+          onSearchChange={setSearchInput}
+          startDate={startDate}
+          onStartDateChange={setStartDate}
+          endDate={endDate}
+          onEndDateChange={setEndDate}
+          onSubmit={handleSearch}
+          onReset={handleReset}
+          loading={loading}
+          placeholder="Rechercher un produit..."
+        />
+
+
+        {/* ---  LES STATS --- */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-4xl">
+        {/* Carte Entrées */}
+        <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-emerald-50">
+          <div className="flex justify-between items-start mb-2">
+            <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">
+              Flux Entrant
+            </span>
+            <span className="bg-emerald-100 text-emerald-700 text-[10px] font-bold px-2 py-1 rounded-lg">
+              +{stats.entrees.toLocaleString('fr-FR')} u
+            </span>
           </div>
-          <input 
-            type="text"
-            placeholder="Rechercher..."
-            className="w-full bg-white border border-slate-200 rounded-2xl px-10 py-3 text-sm font-bold shadow-sm focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all"
-            onChange={(e) => {/* Ta fonction de recherche ici */}}
-          />
+          <div className="flex items-baseline gap-1">
+            <span className="text-3xl font-black text-slate-900">
+              {stats.valeurEntrees.toLocaleString('fr-FR')}
+            </span>
+            <span className="text-sm font-bold text-slate-400">Ar</span>
+          </div>
         </div>
+
+        {/* Carte Sorties */}
+        <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-rose-50">
+          <div className="flex justify-between items-start mb-2">
+            <span className="text-[10px] font-black text-rose-600 uppercase tracking-widest">
+              Flux Sortant
+            </span>
+            <span className="bg-rose-100 text-rose-700 text-[10px] font-bold px-2 py-1 rounded-lg">
+              -{stats.sorties.toLocaleString('fr-FR')} u
+            </span>
+          </div>
+          <div className="flex items-baseline gap-1">
+            <span className="text-3xl font-black text-slate-900">
+              {stats.valeurSorties.toLocaleString('fr-FR')}
+            </span>
+            <span className="text-sm font-bold text-slate-400">Ar</span>
+          </div>
+        </div>
+      </div>
 
         {/* TABLEAU AVEC SCROLLING ET COLONNES PRIORITAIRES */}
         <div className="bg-transparent md:bg-white md:rounded-[2.5rem] md:overflow-hidden md:shadow-sm md:border md:border-slate-100">
@@ -66,35 +134,51 @@ export default function AdminInventoryHistory() {
                 {/* En-tête : Date & Type */}
                 <div className="flex justify-between items-center">
                   <div className="flex items-center gap-2">
-                    <span className={`w-2 h-2 rounded-full ${mov.type === 'Entrée' ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
+                    <span className={`w-2 h-2 rounded-full ${mov.TypeMouvement === 'Entrée' ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
                     <p className="font-bold text-slate-700 text-xs">{mov.date}</p>
                   </div>
                   <span className={`px-2 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest ${
-                    mov.type === 'Entrée' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' : 'bg-amber-50 text-amber-600 border border-amber-100'
+                    mov.TypeMouvement === 'Entrée' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' : 'bg-amber-50 text-amber-600 border border-amber-100'
                   }`}>
-                    {mov.type}
+                    {mov.TypeMouvement}
                   </span>
                 </div>
 
                 {/* Produit & Quantité */}
-                <div className="flex justify-between items-end bg-slate-50/50 p-3 rounded-2xl">
+                <div className="flex justify-between items-end bg-slate-50/50 p-3 rounded-t-2xl border-b border-white">
                   <div className="min-w-0">
                     <p className="text-[9px] text-slate-400 font-black uppercase tracking-widest mb-0.5">Produit</p>
-                    <p className="font-black text-slate-900 text-sm truncate">{mov.product}</p>
+                    <p className="font-black text-slate-900 text-sm truncate">{mov.Produit}</p>
                   </div>
                   <div className="text-right">
                     <p className="text-[9px] text-slate-400 font-black uppercase tracking-widest mb-0.5">Quantité</p>
-                    <p className={`text-lg font-black ${mov.qty > 0 ? 'text-emerald-500' : 'text-amber-500'}`}>
-                      {mov.qty > 0 ? `+${mov.qty}` : mov.qty}
+                    <p className={`text-lg font-black ${
+                      mov.TypeMouvement?.toLowerCase().includes('entr') ? 'text-emerald-500' : 'text-rose-500'
+                    }`}>
+                      {mov.TypeMouvement?.toLowerCase().includes('entr') ? `+${mov.Quantite}` : `-${mov.Quantite}`}
+                    </p>
+                  </div>
+                </div>
+
+                {/* --- NOUVELLE SECTION : PRIX ET TOTAL MOBILE --- */}
+                <div className="flex justify-between items-center bg-slate-50/50 p-3 rounded-b-2xl mt-[-16px]">
+                  <div>
+                    <p className="text-[9px] text-slate-400 font-black uppercase tracking-widest mb-0.5">Prix Unitaire</p>
+                    <p className="font-bold text-slate-700 text-xs">{(Number(mov.PrixUnitaire) || 0).toLocaleString('fr-FR')} Ar</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[9px] text-slate-400 font-black uppercase tracking-widest mb-0.5">Total</p>
+                    <p className="font-black text-slate-900 text-xs">
+                      {((Number(mov.PrixUnitaire) || 0) * (Number(mov.Quantite) || 0)).toLocaleString('fr-FR')} Ar
                     </p>
                   </div>
                 </div>
 
                 {/* Raison / Commentaire */}
-                <div className="px-1">
+                <div className="px-1 pt-2">
                   <p className="text-[9px] text-slate-400 font-black uppercase tracking-widest mb-1">Motif du mouvement</p>
                   <p className="text-xs text-slate-600 italic font-medium leading-relaxed">
-                    "{mov.reason}"
+                    "{mov.Motif}"
                   </p>
                 </div>
               </div>
@@ -110,6 +194,7 @@ export default function AdminInventoryHistory() {
                   <th className="p-6">Produit</th>
                   <th className="p-6 text-center">Type</th>
                   <th className="p-6 text-center">Quantité</th>
+                  <th className="p-6 text-right">Valeur</th>
                   <th className="p-6">Raison</th>
                 </tr>
               </thead>
@@ -121,66 +206,95 @@ export default function AdminInventoryHistory() {
                       <p className="text-[9px] text-slate-400 font-mono tracking-tighter">{mov.id}</p>
                     </td>
                     <td className="p-6">
-                      <p className="font-bold text-slate-900">{mov.product}</p>
+                      <p className="font-bold text-slate-900">{mov.Produit}</p>
                     </td>
                     <td className="p-6 text-center">
                       <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest whitespace-nowrap ${
-                        mov.type === 'Entrée' ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-600'
+                        mov.TypeMouvement === 'Entrée' ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-600'
                       }`}>
-                        {mov.type}
+                        {mov.TypeMouvement}
                       </span>
                     </td>
                     <td className="p-6 text-center font-black">
-                      <span className={mov.qty > 0 ? 'text-emerald-500' : 'text-amber-500'}>
-                        {mov.qty > 0 ? `+${mov.qty}` : mov.qty}
-                      </span>
+                      <p className={`text-lg font-black ${
+                        mov.TypeMouvement?.toLowerCase().includes('entr') ? 'text-emerald-500' : 'text-rose-500'
+                      }`}>
+                        {mov.TypeMouvement?.toLowerCase().includes('entr') ? `+${mov.Quantite}` : `-${mov.Quantite}`}
+                      </p>
+                    </td>
+                    <td className="p-6 text-right">
+                      <div className="flex flex-col justify-end">
+                        <span className="text-slate-900 font-bold text-sm">
+                          {(Number(mov.PrixUnitaire) || 0).toLocaleString('fr-FR')} Ar
+                        </span>
+                        <span className="text-[10px] text-slate-400 font-medium">
+                          Total: {((Number(mov.PrixUnitaire) || 0) * (Number(mov.Quantite) || 0)).toLocaleString('fr-FR')} Ar
+                        </span>
+                      </div>
                     </td>
                     <td className="p-6 text-slate-500 italic text-xs">
-                      <span className="line-clamp-2 italic">"{mov.reason}"</span>
+                      <span className="line-clamp-2 italic">"{mov.Motif}"</span>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+
+          {/* ---   MESSAGE VIDE / EMPTY STATE   --- */}
+          {!loading && movements.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-24 px-4 text-center animate-in fade-in duration-500">
+              <div className="w-20 h-20 bg-slate-50 rounded-[2rem] flex items-center justify-center mb-6 border border-slate-100 shadow-sm">
+                <svg 
+                  className="w-10 h-10 text-slate-300" 
+                  fill="none" 
+                  stroke="currentColor" 
+                  viewBox="0 0 24 24"
+                >
+                  <path 
+                    strokeLinecap="round" 
+                    strokeLinejoin="round" 
+                    strokeWidth="1.5" 
+                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" 
+                  />
+                </svg>
+              </div>
+
+              <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight">
+                {activeSearch || activeStart || activeEnd 
+                  ? "Aucun résultat trouvé" 
+                  : "Historique vide"}
+              </h3>
+
+              <p className="text-sm text-slate-500 max-w-[280px] mx-auto mt-2 leading-relaxed">
+                {activeSearch || activeStart || activeEnd 
+                  ? `Nous n'avons trouvé aucun mouvement correspondant à vos critères de filtrage.` 
+                  : "Il n'y a encore aucun mouvement de stock enregistré dans la base de données."}
+              </p>
+
+              {/* Bouton de secours si des filtres sont actifs */}
+              {(activeSearch || activeStart || activeEnd) && (
+                <button 
+                  onClick={handleReset}
+                  className="mt-8 px-6 py-2 bg-slate-900 text-white text-[10px] font-black uppercase tracking-[0.2em] rounded-full hover:bg-primary transition-colors shadow-lg shadow-slate-200"
+                >
+                  Effacer les filtres
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         {/* BARRE DE PAGINATION (Adaptée) */}
-        {totalPages > 1 && (
-          <div className="mt-6 md:mt-0 p-6 md:bg-slate-50/50 border-t border-slate-100 flex justify-center items-center gap-2">
-            <div className="p-6 bg-slate-50/50 border-t border-slate-100 flex justify-center items-center gap-2">
-              <button 
-                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                disabled={currentPage === 1}
-                className="p-2 text-slate-400 hover:text-primary disabled:opacity-30 transition"
-              >
-                ←
-              </button>
-              
-              {Array.from({ length: totalPages }, (_, i) => (
-                <button
-                  key={i + 1}
-                  onClick={() => setCurrentPage(i + 1)}
-                  className={`w-8 h-8 rounded-lg text-xs font-black transition-all ${
-                    currentPage === i + 1 
-                    ? 'bg-primary text-white shadow-lg shadow-primary/20 scale-110' 
-                    : 'bg-white text-slate-400 border border-slate-200 hover:border-primary/30'
-                  }`}
-                >
-                  {i + 1}
-                </button>
-              ))}
+        <PaginationHistory
+          page={page}
+          hasNext={hasNext}
+          loading={loading}
+          show={movements.length > 0 || page > 1}
+          onPrev={handlePrev}
+          onNext={handleNext}
+        />
 
-              <button 
-                onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-                disabled={currentPage === totalPages}
-                className="p-2 text-slate-400 hover:text-primary disabled:opacity-30 transition"
-              >
-                →
-              </button>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

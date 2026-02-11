@@ -1,5 +1,6 @@
 // src/App.jsx
 import { Routes, Route, useLocation } from "react-router-dom";
+import { AuthGuard } from "./components/AuthGuard";
 
 //Layout
 import AdminLayout from "./layouts/AdminLayout";
@@ -12,7 +13,6 @@ import Cart from "./pages/Cart";
 import Profile from "./pages/Profile";
 
 //Admin
-import AdminSidebar from "./components/admin/AdminSidebar";
 import AdminProducts from "./pages/admin/AdminProducts";
 import AdminAddProduct from "./pages/admin/AdminAddProduct";
 import AdminInventory from "./pages/admin/AdminInventory";
@@ -44,18 +44,20 @@ function App() {
         <Route path="/profile" element={<Profile />} />
         <Route path="/cart" element={<Cart />} />
 
-        {/* --- ROUTES ADMIN : Tout est géré dans AdminLayout --- */}
-        <Route path="/admin" element={<AdminLayout />}>
-          <Route index element={<AdminDashboard />} />
-          <Route path="products" element={<AdminProducts />} />
-          <Route path="products/add" element={<AdminAddProduct />} />
-          <Route path="inventory" element={<AdminInventory />} />
-          <Route path="orders" element={<AdminOrders />} />
-          <Route path="sales" element={<AdminSales />} />
-          <Route path="categories" element={<AdminCategories />} />
-          <Route path="inventory/history" element={<AdminInventoryHistory />} />
-          <Route path="customers" element={<AdminCustomers />} />
-          <Route path="customers/:id" element={<AdminCustomerDetail />} />
+        {/* --- ROUTES PROTÉGÉES --- */}
+        <Route element={<AuthGuard />}>
+          <Route path="/admin" element={<AdminLayout />}>
+            <Route index element={<AdminDashboard />} />
+            <Route path="products" element={<AdminProducts />} />
+            <Route path="products/add" element={<AdminAddProduct />} />
+            <Route path="inventory" element={<AdminInventory />} />
+            <Route path="orders" element={<AdminOrders />} />
+            <Route path="sales" element={<AdminSales />} />
+            <Route path="categories" element={<AdminCategories />} />
+            <Route path="inventory/history" element={<AdminInventoryHistory />} />
+            <Route path="customers" element={<AdminCustomers />} />
+            <Route path="customers/:id" element={<AdminCustomerDetail />} />
+          </Route>
         </Route>
       </Routes>
     </div>
