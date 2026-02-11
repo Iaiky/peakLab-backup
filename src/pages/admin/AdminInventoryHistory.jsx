@@ -1,10 +1,17 @@
 import { Link } from "react-router-dom";
-import { useMemo } from "react";
+import { useMemo , useState } from "react";
 import { useFirestoreHistory } from "../../hooks/useFirestoreHistory"
 import FiltersHistory from "../../components/history/FiltersHistory";
 import PaginationHistory from "../../components/history/PaginationsHistory";
+import { useGroups } from "../../hooks/useGroup";
+import { useCategories } from "../../hooks/useCategorie";
 
 export default function AdminInventoryHistory() {
+
+
+  const { groups } = useGroups(); 
+  const { categories } = useCategories();
+
   const { 
     data: movements, 
     loading, 
@@ -15,14 +22,23 @@ export default function AdminInventoryHistory() {
     startDate, setStartDate,
     endDate, setEndDate,
     handleSearch, 
-    handleReset,
+    handleReset: originalReset,
     activeSearch, 
     activeStart, 
-    activeEnd
+    activeEnd,
+    selectedGroup, setSelectedGroup,
+    selectedCat, setSelectedCat
   } = useFirestoreHistory("MouvementsStock", { 
         pageSize: 7, 
         searchField: "Produit" 
       });
+
+  // 3. Étendre le reset pour inclure nos nouveaux filtres
+  const customReset = () => {
+    setSelectedGroup("");
+    setSelectedCat("");
+    originalReset();
+  };
 
   const handlePrev = () => setPage(prev => Math.max(1, prev - 1));
   const handleNext = () => setPage(prev => prev + 1);
@@ -77,8 +93,14 @@ export default function AdminInventoryHistory() {
           onStartDateChange={setStartDate}
           endDate={endDate}
           onEndDateChange={setEndDate}
-          onSubmit={handleSearch}
-          onReset={handleReset}
+          selectedGroup={selectedGroup}
+          onGroupChange={setSelectedGroup}
+          selectedCat={selectedCat}
+          onCatChange={setSelectedCat}
+          groups={groups}
+          categories={categories}
+          onSubmit={() => handleSearch({ selectedGroup, selectedCat })}
+          onReset={customReset}
           loading={loading}
           placeholder="Rechercher un produit..."
         />

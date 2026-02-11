@@ -5,12 +5,18 @@ export default function FiltersHistory({
   onStartDateChange,
   endDate,
   onEndDateChange,
+  selectedGroup, onGroupChange,
+  selectedCat, onCatChange,
+  groups = [],
+  categories = [],
   onSubmit,
   onReset,
   loading = false,
   placeholder = "Rechercher...",
 }) {
-  const hasFilters = searchValue || startDate || endDate;
+  const hasFilters = searchValue || startDate || endDate || selectedGroup || selectedCat;
+
+  const filteredCategories = categories.filter(cat => cat.IdGroupe === selectedGroup);
 
   return (
     <div className="w-full max-w-4xl">
@@ -46,6 +52,30 @@ export default function FiltersHistory({
             onChange={(e) => onSearchChange(e.target.value)}
             className="w-full bg-white border-none rounded-2xl py-4 pl-11 pr-4 text-xs shadow-sm focus:ring-2 focus:ring-primary/20 placeholder:text-slate-400 transition-all font-medium"
           />
+        </div>
+
+        {/* 2. Filtres Groupe et Catégorie */}
+        <div className="flex flex-col sm:flex-row gap-3 w-full">
+          {/* Groupe */}
+          <select
+            value={selectedGroup}
+            onChange={(e) => { onGroupChange(e.target.value); onCatChange(""); }} // Reset cat si groupe change
+            className="flex-1 bg-white border-none rounded-2xl py-3.5 px-4 text-xs shadow-sm focus:ring-2 focus:ring-primary/20 font-bold text-slate-700 min-h-[50px] appearance-none"
+          >
+            <option value="">Tous les Groupes</option>
+            {groups.map(g => <option key={g.id} value={g.id}>{g.Nom}</option>)}
+          </select>
+
+          {/* Catégorie (Désactivé si pas de groupe) */}
+          <select
+            value={selectedCat}
+            onChange={(e) => onCatChange(e.target.value)}
+            disabled={!selectedGroup}
+            className="flex-1 bg-white border-none rounded-2xl py-3.5 px-4 text-xs shadow-sm focus:ring-2 focus:ring-primary/20 font-bold text-slate-700 min-h-[50px] appearance-none disabled:opacity-50"
+          >
+            <option value="">Toutes les Catégories</option>
+            {filteredCategories.map(c => <option key={c.id} value={c.id}>{c.Nom}</option>)}
+          </select>
         </div>
 
         {/* 📅 Dates + Buttons */}

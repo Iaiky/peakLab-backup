@@ -6,8 +6,13 @@ import { collection, getDocs, doc, deleteDoc, updateDoc, increment, query, where
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import AdminProductDetailModal from '../../components/admin/AdminProductDetailModal'
 import PaginationHistory from '../../components/history/PaginationsHistory';
+import { useGroups } from '../../hooks/useGroup';
+import { useCategories } from '../../hooks/useCategorie';
 
 export default function AdminProducts() {
+
+  const { groups } = useGroups();
+  const { categories: allCategoriesDocs } = useCategories(); // On récupère les objets cat complets
 
   const {
     products, 
@@ -21,8 +26,36 @@ export default function AdminProducts() {
     updateFilters, 
     activeCategory, 
     activeSearch,
-    setAllProducts
+    setAllProducts,
+    activeGroup,
   } = useAdminProduct(5);
+
+  // État local pour les onglets
+  const [currentGroupId, setCurrentGroupId] = useState(activeGroup || "");
+
+  // Mettre à jour le groupe quand les groupes sont chargés
+  useEffect(() => {
+    if (groups.length > 0 && !currentGroupId) {
+      handleGroupChange(groups[0].id);
+    }
+  }, [groups]);
+
+  const handleGroupChange = (groupId) => {
+    setCurrentGroupId(groupId);
+    // On réinitialise la catégorie quand on change de groupe pour éviter les mélanges
+    updateFilters(activeSearch, "Toutes les catégories", groupId); 
+  };
+
+  // Filtrer les catégories pour le select selon le groupe actif
+  const filteredCategoriesForSelect = allCategoriesDocs
+    .filter(cat => cat.IdGroupe === currentGroupId)
+
+  const getCategoryName = (idCategorie) => {
+    if (!idCategorie) return "Général";
+    // On cherche l'objet catégorie qui a cet ID
+    const cat = allCategoriesDocs.find(c => c.id === idCategorie);
+    return cat ? cat.Nom : "Général";
+  };
 
   // --- ÉTATS D'INTERFACE UNIQUEMENT ---
   const [selectedProduct, setSelectedProduct] = useState(null);
@@ -64,15 +97,15 @@ export default function AdminProducts() {
     });
   };
 
-  const updateCategoryCount = async (categoryName, value) => {
-    if (!categoryName) return;
-    const q = query(collection(db, "categories"), where("Nom", "==", categoryName));
-    const querySnapshot = await getDocs(q);
-    if (!querySnapshot.empty) {
-      const catDoc = querySnapshot.docs[0];
-      await updateDoc(doc(db, "categories", catDoc.id), {
+  const updateCategoryCount = async (catId, value) => {
+    if (!catId) return;
+    try {
+      const catRef = doc(db, "categories", catId);
+      await updateDoc(catRef, {
         count: increment(value)
       });
+    } catch (e) {
+      console.error("Impossible de mettre à jour le compteur", e);
     }
   };
 
@@ -80,69 +113,86 @@ export default function AdminProducts() {
   const handleUpdate = async (e) => {
     e.preventDefault();
 
-    // 1. On retrouve l'ancien produit pour comparer la catégorie (utile pour les compteurs)
     const oldProduct = allProducts.find((p) => p.id === editingProduct.id);
     if (!oldProduct) return;
 
     try {
       let finalImageUrl = editingProduct.image;
 
-      // 2. Gestion de l'image (Firebase Storage)
+      // 1. Gestion de l'image
       if (editingProduct.newFile) {
         const storageRef = ref(storage, `produits/${editingProduct.id}_${Date.now()}`);
         const snapshot = await uploadBytes(storageRef, editingProduct.newFile);
         finalImageUrl = await getDownloadURL(snapshot.ref);
       }
 
-      // 3. Préparation des données pour Firestore
+      // 2. Préparation des données (on utilise les IDs)
       const productRef = doc(db, "produits", editingProduct.id);
       const updatedFields = {
         Nom: editingProduct.Nom,
         Prix: Number(editingProduct.Prix),
         Stock: Number(editingProduct.Stock),
-        Categorie: editingProduct.Categorie,
+        Poids: Number(editingProduct.Poids),
+        // ON UTILISE LES IDS ICI
+        IdCategorie: editingProduct.IdCategorie, 
+        IdGroupe: currentGroupId, // On s'assure qu'il reste dans le bon groupe
         image: finalImageUrl,
       };
 
-      // 4. Mise à jour effective dans Firestore
+      // 3. Mise à jour Firestore
       await updateDoc(productRef, updatedFields);
 
-      // 5. Mise à jour des compteurs de catégories si elle a changé
-      if (oldProduct.Categorie !== editingProduct.Categorie) {
-        await updateCategoryCount(oldProduct.Categorie, -1);
-        await updateCategoryCount(editingProduct.Categorie, 1);
+      // 4. Mise à jour des compteurs (seulement si la catégorie a changé)
+      // On compare les IDs, c'est beaucoup plus fiable
+      if (oldProduct.IdCategorie !== editingProduct.IdCategorie) {
+        // Rappel : updateCategoryCount doit maintenant accepter un ID en paramètre
+        if (oldProduct.IdCategorie) await updateCategoryCount(oldProduct.IdCategorie, -1);
+        if (editingProduct.IdCategorie) await updateCategoryCount(editingProduct.IdCategorie, 1);
       }
 
-      // 6. Mise à jour locale du Hook (pour rafraîchir le tableau immédiatement)
-      // On fusionne les anciens champs avec les nouveaux
+      // 5. Mise à jour locale du State
       const updatedProduct = { ...editingProduct, ...updatedFields };
-      delete updatedProduct.newFile; // On nettoie le fichier temporaire
+      delete updatedProduct.newFile;
 
       setAllProducts(
         allProducts.map((p) => (p.id === editingProduct.id ? updatedProduct : p))
       );
 
-      // 7. Fermeture et succès
       setEditingProduct(null);
-      alert("Produit mis à jour avec succès !");
+      alert("Produit mis à jour !");
     } catch (error) {
       console.error("Erreur lors de l'update:", error);
       alert("Erreur lors de l'enregistrement.");
     }
   };
 
-  const handleDelete = async (id, name, categoryName) => {
+  const handleDelete = async (productId, name, categoryId) => {
     if (window.confirm(`Voulez-vous vraiment supprimer ${name} ?`)) {
       try {
-        await deleteDoc(doc(db, "produits", id));
-        await updateCategoryCount(categoryName, -1);
+        // 1. Suppression du produit
+        await deleteDoc(doc(db, "produits", productId));
 
-        // MAJ locale instantanée
-        setAllProducts((prev) => prev.filter(p => p.id !== id));
+        // 2. Mise à jour du compteur de la catégorie (via ID)
+        if (categoryId) {
+          await updateCategoryCount(categoryId, -1);
+        }
+
+        // 3. OPTIONNEL : Mise à jour du compteur du groupe
+        // Si tu as un champ "NombreProduit" dans ta collection "groupes"
+        if (currentGroupId) {
+          const groupRef = doc(db, "Groupes", currentGroupId);
+          await updateDoc(groupRef, {
+            NombreProduit: increment(-1)
+          }).catch(() => console.log("Pas de compteur global pour ce groupe"));
+        }
+
+        // 4. Mise à jour locale du State (UI)
+        setAllProducts((prev) => prev.filter(p => p.id !== productId));
         
-        alert("Produit supprimé !");
+        alert("Produit supprimé avec succès !");
       } catch (error) {
         console.error("Erreur suppression:", error);
+        alert("Erreur lors de la suppression.");
       }
     }
   };
@@ -166,6 +216,23 @@ export default function AdminProducts() {
         </Link>
       </div>
 
+      {/* NAVIGATION PAR GROUPES (TABS) */}
+      <div className="flex gap-2 mb-6 overflow-x-auto pb-2 no-scrollbar">
+        {groups.map((group) => (
+          <button
+            key={group.id}
+            onClick={() => handleGroupChange(group.id)}
+            className={`px-6 py-3 rounded-2xl font-black uppercase text-xs tracking-widest transition-all whitespace-nowrap ${
+              currentGroupId === group.id 
+              ? 'bg-primary text-white shadow-lg shadow-primary/20 scale-105' 
+              : 'bg-white text-slate-400 border border-slate-100 hover:bg-slate-50'
+            }`}
+          >
+            {group.Nom}
+          </button>
+        ))}
+      </div>
+
       {/* BARRE DE RECHERCHE ET FILTRES - Stacked sur mobile */}
       <div className="bg-white p-3 md:p-4 rounded-2xl mb-6 shadow-sm border border-slate-100 flex flex-col md:flex-row gap-3 md:gap-4 items-center">
         {/* Input de recherche */}
@@ -184,10 +251,14 @@ export default function AdminProducts() {
         <select 
           className="w-full md:w-auto bg-slate-50 border-none rounded-xl px-4 py-2 text-sm font-bold text-secondary outline-none"
           value={tempCategory}
-          onChange={(e) => setTempCategory(e.target.value)} // On change juste l'état local ici
+          onChange={(e) => setTempCategory(e.target.value)}
         >
           <option value="Toutes les catégories">Toutes les catégories</option>
-          {categories.map((cat, i) => <option key={i} value={cat}>{cat}</option>)}
+          {filteredCategoriesForSelect.map((cat) => (
+            <option key={cat.id} value={cat.id}>
+              {cat.Nom}
+            </option>
+          ))}
         </select>
 
         {/* Groupe de Boutons */}
@@ -236,7 +307,7 @@ export default function AdminProducts() {
                     </div>
                     <div className="min-w-0">
                       <span className="text-[10px] font-bold px-2 py-0.5 bg-slate-100 rounded-md text-slate-600 uppercase mb-1 inline-block">
-                        {product.Categorie || "Général"}
+                        {getCategoryName(product.IdCategorie)}
                       </span>
                       <p className="font-bold text-slate-900 text-base truncate">{product.Nom}</p>
                       <p className="text-[11px] text-secondary font-medium uppercase">{product.Poids} kg</p>
@@ -270,7 +341,7 @@ export default function AdminProducts() {
                       ✏️
                     </button>
                     <button 
-                      onClick={() => handleDelete(product.id, product.Nom, product.Categorie)}
+                      onClick={() => handleDelete(product.id, product.Nom, product.IdCategorie)}
                       className="p-2 bg-red-50 text-red-500 rounded-lg shadow-sm"
                     >
                       🗑️
@@ -313,7 +384,7 @@ export default function AdminProducts() {
                         </div>
                       </td>
                       <td className="px-6 py-5">
-                        <span className="text-xs font-bold px-3 py-1 bg-slate-100 rounded-lg text-slate-600">{product.Categorie || "Général"}</span>
+                        <span className="text-xs font-bold px-3 py-1 bg-slate-100 rounded-lg text-slate-600">{getCategoryName(product.IdCategorie)}</span>
                       </td>
                       <td className="px-6 py-5 font-black text-slate-900 text-base">{product.Prix.toLocaleString()}Ar</td>
                       <td className="px-6 py-5">
@@ -325,7 +396,7 @@ export default function AdminProducts() {
                       <td className="px-6 py-5 text-right" onClick={(e) => e.stopPropagation()}>
                         <div className="flex justify-end gap-2">
                           <button onClick={() => setEditingProduct(product)} className="p-2 hover:bg-blue-50 text-blue-600 rounded-lg transition">✏️</button>
-                          <button onClick={() => handleDelete(product.id, product.Nom, product.Categorie)} className="p-2 hover:bg-red-50 text-red-500 rounded-lg transition">🗑️</button>
+                          <button onClick={() => handleDelete(product.id, product.Nom, product.IdCategorie)} className="p-2 hover:bg-red-50 text-red-500 rounded-lg transition">🗑️</button>
                         </div>
                       </td>
                     </tr>
@@ -475,12 +546,17 @@ export default function AdminProducts() {
                 <div className="col-span-2">
                   <label className="text-[10px] font-bold uppercase text-slate-400">Catégorie</label>
                   <select 
-                    className="w-full bg-slate-50 border-none rounded-xl p-3 mt-1 font-bold text-sm text-slate-700 outline-none focus:ring-2 focus:ring-primary appearance-none"
-                    value={editingProduct.Categorie}
-                    onChange={(e) => setEditingProduct({...editingProduct, Categorie: e.target.value})}
+                    className="w-full bg-slate-50 border-none rounded-xl p-3 mt-1 font-bold text-sm text-slate-700"
+                    // ON LIE L'ID ICI
+                    value={editingProduct.IdCategorie || ""} 
+                    onChange={(e) => setEditingProduct({...editingProduct, IdCategorie: e.target.value})}
                   >
-                    {categories.map((cat, index) => (
-                      <option key={index} value={cat}>{cat}</option>
+                    <option value="">Choisir une catégorie</option>
+                    {/* On n'affiche QUE les catégories du groupe actuel */}
+                    {allCategoriesDocs
+                      .filter(cat => cat.IdGroupe === currentGroupId)
+                      .map((cat) => (
+                        <option key={cat.id} value={cat.id}>{cat.Nom}</option>
                     ))}
                   </select>
                 </div>

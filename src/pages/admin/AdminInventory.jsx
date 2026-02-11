@@ -1,11 +1,18 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { db } from '../../firebase/config';
-import { doc, collection, runTransaction, serverTimestamp } from 'firebase/firestore';
+import { doc, collection, runTransaction, serverTimestamp, getDocs } from 'firebase/firestore';
 import { useInventoryPagination } from '../../hooks/useInventoryPagination';
 import  PaginationHistory  from '../../components/history/PaginationsHistory'
+import { useCategories } from '../../hooks/useCategorie';
 
 export default function AdminInventory() {
+
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [groups, setGroups] = useState([]);
+  
+  // 1. Récupération du groupe actif depuis l'URL
+  const currentGroupId = searchParams.get("group") || "";
 
   const { 
     data: products, 
@@ -27,6 +34,39 @@ export default function AdminInventory() {
   const [unitPrice, setUnitPrice] = useState('');
   const [comment, setComment] = useState("");
 
+  // 2. Charger les groupes au démarrage
+  useEffect(() => {
+    const fetchGroups = async () => {
+      const snap = await getDocs(collection(db, "Groupes"));
+      const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setGroups(list);
+      
+      // Si aucun groupe n'est dans l'URL, on prend le premier
+      if (!currentGroupId && list.length > 0) {
+        setSearchParams({ group: list[0].id });
+      }
+    };
+    fetchGroups();
+  }, [currentGroupId, setSearchParams]);
+
+    // Fonction pour transformer l'IdCategorie en Nom lisible
+    // 1. Récupérer les catégories (si ce n'est pas déjà fait)
+    const [allCategoriesDocs, setAllCategoriesDocs] = useState([]);
+    useEffect(() => {
+      const fetchCats = async () => {
+        const snap = await getDocs(collection(db, "categories"));
+        setAllCategoriesDocs(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      };
+      fetchCats();
+    }, []);
+
+    // 2. LA FONCTION QUI MANQUAIT
+    const getCatName = (id) => {
+      if (!id) return "Général";
+      const found = allCategoriesDocs.find(c => c.id === id);
+      return found ? found.Nom : "Général";
+    };
+
   const openMovementModal = (product, type) => {
     setSelectedProduct(product);
     setMovementType(type);
@@ -47,6 +87,7 @@ export default function AdminInventory() {
         const productDoc = await transaction.get(productRef);
         if (!productDoc.exists()) throw "Le produit n'existe plus !";
 
+        const productData = productDoc.data();
         const currentStock = Number(productDoc.data().Stock) || 0;
         
         // 2. Calculer et assigner à la variable de portée supérieure
@@ -64,6 +105,8 @@ export default function AdminInventory() {
         transaction.set(movementRef, {
           Produit: selectedProduct.Nom,
           ProductId: selectedProduct.id,
+          IdGroupe: productData.IdGroupe,       // On prend l'ID groupe du produit
+          IdCategorie: productData.IdCategorie,
           Quantite: moveQty,
           PrixUnitaire: Number(unitPrice),
           Motif: comment,
@@ -176,6 +219,23 @@ export default function AdminInventory() {
         </div>
       </div>
 
+      {/* TABS DES GROUPES (MARQUES) */}
+      <div className="flex overflow-x-auto gap-2 mb-6 no-scrollbar pb-2">
+        {groups.map((group) => (
+          <button
+            key={group.id}
+            onClick={() => setSearchParams({ group: group.id })}
+            className={`px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${
+              currentGroupId === group.id
+                ? "bg-primary text-white shadow-lg shadow-primary/20 scale-105"
+                : "bg-white text-slate-400 border border-slate-100 hover:bg-slate-50"
+            }`}
+          >
+            {group.Nom}
+          </button>
+        ))}
+      </div>
+
       {/* TABLEAU AVEC SCROLL HORIZONTAL MOBILE */}
       <div className="bg-transparent md:bg-white md:rounded-[2.5rem] md:shadow-sm md:border md:border-slate-100 overflow-hidden">
   
@@ -189,7 +249,7 @@ export default function AdminInventory() {
                 <div className="min-w-0">
                   <p className="text-[10px] text-secondary font-black uppercase tracking-widest mb-1">Référence</p>
                   <p className="font-black text-slate-900 text-base truncate">{product.Nom}</p>
-                  <p className="text-[10px] text-primary font-bold uppercase">{product.Categorie}</p>
+                  <p className="text-[10px] text-primary font-bold uppercase">{getCatName(product.IdCategorie)}</p>
                 </div>
                 
                 {/* Ligne 2 : Stock (Intégré en haut à droite) */}
@@ -228,6 +288,7 @@ export default function AdminInventory() {
             <thead className="bg-slate-50 border-b border-slate-100">
               <tr className="text-[11px] uppercase tracking-widest text-secondary font-black">
                 <th className="px-8 py-5">Référence</th>
+                <th className="px-6 py-5">Catégorie</th>
                 <th className="px-6 py-5">Stock</th>
                 <th className="px-8 py-5 text-right">Actions</th>
               </tr>
@@ -237,7 +298,7 @@ export default function AdminInventory() {
                 <tr key={product.id} className="hover:bg-slate-50/50 transition-colors">
                   <td className="px-8 py-5">
                     <p className="font-bold text-slate-900 text-sm">{product.Nom}</p>
-                    <p className="text-[10px] text-secondary font-medium uppercase">{product.Categorie}</p>
+                    <p className="text-[10px] text-secondary font-medium uppercase">{getCatName(product.IdCategorie)}</p>
                   </td>
                   <td className="px-6 py-5">
                     <span className={`inline-block px-3 py-1 rounded-full text-[10px] font-black ${

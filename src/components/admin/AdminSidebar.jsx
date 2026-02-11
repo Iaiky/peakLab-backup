@@ -30,6 +30,7 @@ export default function AdminSidebar() {
     // { name: 'Tableau de bord', path: '/admin', icon: '📊' },
     { name: 'Stocks', path: '/admin/inventory', icon: '🔄' },
     { name: 'Produits', path: '/admin/products', icon: '📦' },
+    { name: 'Groupes', path: '/admin/groups', icon: '🛍️' },
     { name: 'Catégories', path: '/admin/categories', icon: '📁' },
     // { name: 'Clients', path: '/admin/customers', icon: '👥' },
     // { name: 'Commandes', path: '/admin/orders', icon: '🛒' },

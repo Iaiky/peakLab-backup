@@ -12,15 +12,22 @@ export function useInventoryPagination(pageSize = 5) {
   // Valeurs depuis l'URL
   const page = Number(searchParams.get("page")) || 1;
   const activeSearch = searchParams.get("search") || "";
+  const activeGroup = searchParams.get("group") || "";
 
   // État local pour l'input (pour éviter de recharger à chaque lettre tapée)
   const [searchInput, setSearchInput] = useState(activeSearch);
 
   const loadData = async () => {
+
+    if (!activeGroup) return;
+
     setLoading(true);
     try {
       const colRef = collection(db, "produits");
-      const constraints = [orderBy("Nom")]; // Tri par nom pour la consistance
+      let constraints = [
+        where("IdGroupe", "==", activeGroup), 
+        orderBy("Nom")
+      ];
 
       if (activeSearch) {
         // Recherche simple par préfixe (attention: sensible à la casse dans Firebase)
@@ -51,13 +58,19 @@ export function useInventoryPagination(pageSize = 5) {
     loadData();
     // Synchro de l'input si l'utilisateur change l'URL manuellement ou via "back"
     setSearchInput(activeSearch);
-  }, [page, activeSearch]);
+  }, [page, activeSearch, activeGroup]);
 
-  const updateFilters = (newSearch) => {
+  const updateFilters = (newSearch, newGroup) => {
     const params = new URLSearchParams(searchParams);
     params.set("page", "1"); // Reset page 1 sur nouvelle recherche
-    if (newSearch) params.set("search", newSearch);
-    else params.delete("search");
+    if (newSearch !== undefined) {
+      newSearch ? params.set("search", newSearch) : params.delete("search");
+    }
+    
+    if (newGroup !== undefined) {
+      params.set("group", newGroup);
+    }
+    
     setSearchParams(params);
   };
 
@@ -82,6 +95,7 @@ export function useInventoryPagination(pageSize = 5) {
     setPage,
     searchInput, 
     activeSearch,
+    activeGroup,
     setSearchInput, 
     updateFilters
   };

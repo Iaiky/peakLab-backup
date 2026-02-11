@@ -14,18 +14,27 @@ export function useAdminProduct(pageSize = 5) {
   const page = Number(searchParams.get("page")) || 1;
   const activeSearch = searchParams.get("search") || "";
   const activeCategory = searchParams.get("category") || "Toutes les catégories";
+  const activeGroup = searchParams.get("group") || "";
 
   const [searchInput, setSearchInput] = useState(activeSearch);
 
   const loadData = async () => {
+    // Si on n'a pas encore d'activeGroup, on attend (évite de charger tous les produits du store d'un coup)
+    if (!activeGroup) return;
+
     setLoading(true);
     try {
       const colRef = collection(db, "produits");
-      let constraints = [orderBy("Nom")];
+
+      // 2. FILTRE MAÎTRE : Le Groupe
+      let constraints = [
+        where("IdGroupe", "==", activeGroup), // On isole le silo de la marque
+        orderBy("Nom")
+      ];
 
       // Filtre Catégorie
       if (activeCategory !== "Toutes les catégories") {
-        constraints.push(where("Categorie", "==", activeCategory));
+        constraints.push(where("IdCategorie", "==", activeCategory));
       }
 
       // Filtre Recherche (préfixe)
@@ -57,7 +66,7 @@ export function useAdminProduct(pageSize = 5) {
   useEffect(() => {
     loadData();
     setSearchInput(activeSearch);
-  }, [page, activeSearch, activeCategory]);
+  }, [page, activeSearch, activeCategory, activeGroup]);
 
   // AJOUTE CE DÉPENDANCE :
     useEffect(() => {
@@ -66,7 +75,7 @@ export function useAdminProduct(pageSize = 5) {
     setProducts(currentPageData);
     }, [allProducts, page, pageSize]); // Se déclenche dès que la liste complète change
 
-  const updateFilters = (newSearch, newCat) => {
+  const updateFilters = (newSearch, newCat, newGroup) => {
     const params = new URLSearchParams(searchParams);
     params.set("page", "1");
     
@@ -75,6 +84,9 @@ export function useAdminProduct(pageSize = 5) {
     }
     if (newCat !== undefined) {
       newCat !== "Toutes les catégories" ? params.set("category", newCat) : params.delete("category");
+    }
+    if (newGroup !== undefined) {
+      newGroup ? params.set("group", newGroup) : params.delete("group");
     }
     setSearchParams(params);
   };
@@ -88,6 +100,6 @@ export function useAdminProduct(pageSize = 5) {
   return {
     products, allProducts, loading, page, hasNext, setPage,
     searchInput, setSearchInput, updateFilters, activeCategory, setAllProducts,activeSearch,
-  activeCategory,
+    activeCategory,activeGroup
   };
 }

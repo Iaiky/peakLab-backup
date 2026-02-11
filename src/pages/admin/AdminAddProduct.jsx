@@ -5,14 +5,22 @@ import { collection, addDoc, getDocs, doc, updateDoc, increment, query, where, s
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { Link } from 'react-router-dom';
 
+import { useGroups } from '../../hooks/useGroup';
+import { useCategories } from '../../hooks/useCategorie';
+
 export default function AdminAddProduct() {
   const navigate = useNavigate();
   const fileInputRef = useRef(null);
 
+  // Utilisation des hooks
+  const { groups } = useGroups();
+  const { categories, getCategoriesByGroup } = useCategories();
+
   // États pour les données
   const [formData, setFormData] = useState({
     Nom: '',
-    Categorie: '',
+    IdGroupe: '', // On stocke l'ID
+    IdCategorie: '', // On stocke l'ID
     Prix: '',
     Poids: '',
     Stock: '',
@@ -23,22 +31,14 @@ export default function AdminAddProduct() {
   const [imagePreview, setImagePreview] = useState(null); // L'aperçu pour l'écran
   const [isDragging, setIsDragging] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [categories, setCategories] = useState([]);
 
-  // Charger les catégories dynamiquement
+  // Filtrage dynamique des catégories selon le groupe choisi
+  const filteredCategories = getCategoriesByGroup(formData.IdGroupe);
+
+  // Reset de la catégorie si on change de groupe
   useEffect(() => {
-    const fetchCategories = async () => {
-      const snap = await getDocs(collection(db, "categories"));
-      const cats = snap.docs.map(doc => doc.data().Nom);
-      setCategories(cats);
-      
-      // Correction : Si on a des catégories, on sélectionne la première par défaut
-      if (cats.length > 0) {
-        setFormData(prev => ({ ...prev, Categorie: cats[0] }));
-      }
-    };
-    fetchCategories();
-  }, []);
+    setFormData(prev => ({ ...prev, IdCategorie: '' }));
+  }, [formData.IdGroupe]);
 
   // 3. LA FONCTION MAGIQUE HANDLEFILE (Expliquée plus bas)
   const handleFile = (file) => {
@@ -57,14 +57,24 @@ export default function AdminAddProduct() {
     handleFile(e.dataTransfer.files[0]);
   };
 
-  const updateCategoryCount = async (categoryName, value) => {
-    const q = query(collection(db, "categories"), where("Nom", "==", categoryName));
-    const querySnapshot = await getDocs(q);
-    if (!querySnapshot.empty) {
-      const catDoc = querySnapshot.docs[0];
-      await updateDoc(doc(db, "categories", catDoc.id), {
-        count: increment(value) // Utilise increment(1) pour ajouter
-      });
+  const updateCounts = async (groupId, catId, value) => {
+    try {
+      // 1. Références des documents
+      const groupRef = doc(db, "Groupes", groupId);
+      const catRef = doc(db, "categories", catId);
+
+      // 2. Mise à jour groupée (plus propre)
+      // On peut utiliser un try/catch individuel pour ne pas bloquer si l'un manque
+      await updateDoc(groupRef, {
+        NombreProduit: increment(value)
+      }).catch(err => console.warn("Le groupe n'existe pas, compteur non mis à jour"));
+
+      await updateDoc(catRef, {
+        count: increment(value)
+      }).catch(err => console.warn("La catégorie n'existe pas, compteur non mis à jour"));
+
+    } catch (error) {
+      console.error("Erreur lors de la mise à jour des compteurs:", error);
     }
   };
 
@@ -72,45 +82,51 @@ export default function AdminAddProduct() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!imageFile) return alert("Veuillez ajouter une image !");
+    if (!formData.IdGroupe || !formData.IdCategorie) return alert("Choisissez une marque et une catégorie !");
     
     setLoading(true);
     try {
-      // A. Upload de l'image
+      // 1. Upload Image
       const storageRef = ref(storage, `produits/${Date.now()}_${imageFile.name}`);
       await uploadBytes(storageRef, imageFile);
       const url = await getDownloadURL(storageRef);
 
-      // B. Envoi des données texte + URL de l'image
+      // 2. Préparation données
       const stockInitial = Number(formData.Stock) || 0;
       const prixInitial = Number(formData.Prix) || 0;
 
       const productData = {
-        ...formData,
-        Categorie: formData.Categorie,
+        Nom: formData.Nom,
+        IdGroupe: formData.IdGroupe,
+        IdCategorie: formData.IdCategorie,
         Prix: prixInitial,
         Poids: Number(formData.Poids) || 0,
         Stock: stockInitial,
+        Description: formData.Description,
         image: url,
         createdAt: serverTimestamp()
       };
 
+      // 3. Ajout Produit
       const docRef = await addDoc(collection(db, "produits"), productData);
-      // C. CRÉATION DU MOUVEMENT DE STOCK INITIAL
-      // Si le stock initial est > 0, on enregistre l'entrée
-      if (Number(formData.Stock) > 0) {
+
+      // 4. Mouvement Stock
+      if (stockInitial > 0) {
         await addDoc(collection(db, "MouvementsStock"), {
           Produit: formData.Nom,
-          ProductId: docRef.id, // On utilise l'ID qu'on vient de générer
+          ProductId: docRef.id,
+          IdGroupe: formData.IdGroupe, 
+          IdCategorie: formData.IdCategorie,
           Quantite: stockInitial,
           PrixUnitaire: prixInitial,
-          Motif: "Ajout initial du produit",
+          Motif: "Ajout initial",
           TypeMouvement: "Entrée",
           DateAjout: serverTimestamp()
         });
       }
       
-      // D. Mise à jour des compteurs de catégorie
-      await updateCategoryCount(formData.Categorie, 1);
+      // 5. Mise à jour des compteurs (Groupe + Catégorie)
+      await updateCounts(formData.IdGroupe, formData.IdCategorie, 1);
 
       navigate('/admin/products');
     } catch (error) {
@@ -154,19 +170,33 @@ export default function AdminAddProduct() {
                 onChange={(e) => setFormData({...formData, Nom: e.target.value})}
               />
             </div>
+
+            {/* Groupe */}
+            <div className="space-y-2">
+              <label className="text-xs font-black uppercase text-secondary tracking-widest px-1">Catégorie</label>
+              <select 
+                required
+                value={formData.IdGroupe} 
+                className="w-full bg-slate-50 border-none rounded-2xl p-4 focus:ring-2 focus:ring-primary font-medium"
+                onChange={(e) => setFormData({...formData, IdGroupe: e.target.value})}
+              >
+                <option value="">Choisir une marque</option>
+                {groups.map(g => <option key={g.id} value={g.id}>{g.Nom}</option>)}
+              </select>
+            </div>
             
             {/* Catégorie */}
             <div className="space-y-2">
               <label className="text-xs font-black uppercase text-secondary tracking-widest px-1">Catégorie</label>
               <select 
                 required
-                value={formData.Categorie} 
+                disabled={!formData.IdGroupe}
+                value={formData.IdCategorie}
                 className="w-full bg-slate-50 border-none rounded-2xl p-4 focus:ring-2 focus:ring-primary font-medium"
-                onChange={(e) => setFormData({...formData, Categorie: e.target.value})}
+                onChange={(e) => setFormData({...formData, IdCategorie: e.target.value})}
               >
-                {categories.map(cat => (
-                  <option key={cat} value={cat}>{cat}</option>
-                ))}
+                <option value="">{formData.IdGroupe ? "Choisir catégorie" : "Sélectionnez d'abord une marque"}</option>
+                {filteredCategories.map(c => <option key={c.id} value={c.id}>{c.Nom}</option>)}
               </select>
             </div>
 
@@ -209,7 +239,7 @@ export default function AdminAddProduct() {
           <div className="space-y-2">
             <label className="text-xs font-black uppercase text-secondary tracking-widest px-1">Description</label>
             <textarea 
-              rows="4" 
+              rows="3" 
               className="w-full bg-slate-50 border-none rounded-2xl p-4 focus:ring-2 focus:ring-primary"
               onChange={(e) => setFormData({...formData, Description: e.target.value})}
             ></textarea>

@@ -13,11 +13,35 @@ export function useFirestoreHistory(collectionName, options = {}) {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(false);
   const [hasNext, setHasNext] = useState(false);
-
   const [searchParams, setSearchParams] = useSearchParams();
   
   // Lecture des paramètres de l'URL
   const page = Number(searchParams.get("page")) || 1;
+
+  // --- PARAMÈTRES ACTIFS (Depuis l'URL) ---
+  const activeSearch = searchParams.get("search") || "";
+  const activeStart = searchParams.get("start") || "";
+  const activeEnd = searchParams.get("end") || "";
+  const activeGroup = searchParams.get("group") || ""; 
+  const activeCat = searchParams.get("cat") || "";
+
+  // --- ÉTATS LOCAUX (Inputs) ---
+  const [searchInput, setSearchInput] = useState(activeSearch);
+  const [startDate, setStartDate] = useState(activeStart);
+  const [endDate, setEndDate] = useState(activeEnd);
+  const [selectedGroup, setSelectedGroup] = useState(activeGroup); // Nouveau
+  const [selectedCat, setSelectedCat] = useState(activeCat);
+
+  const handleSearch = () => {
+    const params = { page: 1 }; 
+    if (searchInput) params.search = searchInput;
+    if (startDate) params.start = startDate;
+    if (endDate) params.end = endDate;
+    if (selectedGroup) params.group = selectedGroup; // Nouveau
+    if (selectedCat) params.cat = selectedCat;       // Nouveau
+    
+    setSearchParams(params);
+  };
 
   const setPage = (newPageOrFn) => {
     const nextPage = typeof newPageOrFn === 'function' 
@@ -30,31 +54,13 @@ export function useFirestoreHistory(collectionName, options = {}) {
     setSearchParams(newParams);
   };
 
-  const activeSearch = searchParams.get("search") || "";
-  const activeStart = searchParams.get("start") || "";
-  const activeEnd = searchParams.get("end") || "";
-
-  // États locaux pour les formulaires (Inputs)
-  const [searchInput, setSearchInput] = useState(activeSearch);
-  const [startDate, setStartDate] = useState(activeStart);
-  const [endDate, setEndDate] = useState(activeEnd);
-
-  // --- LOGIQUE DES FILTRES ---
-
-  const handleSearch = () => {
-    const params = { page: 1 }; // On reset toujours à la page 1 lors d'une recherche
-    if (searchInput) params.search = searchInput;
-    if (startDate) params.start = startDate;
-    if (endDate) params.end = endDate;
-    
-    setSearchParams(params);
-  };
-
   const handleReset = () => {
     setSearchInput("");
     setStartDate("");
     setEndDate("");
-    setSearchParams({}); // Vide l'URL
+    setSelectedGroup("");
+    setSelectedCat("");
+    setSearchParams({});
   };
 
   // --- LOGIQUE DE RÉCUPÉRATION ---
@@ -66,6 +72,14 @@ export function useFirestoreHistory(collectionName, options = {}) {
       const constraints = [orderBy(dateField, "desc")];
 
       // Filtres Firebase
+      // Filtre Groupe
+      if (activeGroup) {
+        constraints.push(where("IdGroupe", "==", activeGroup));
+      }
+      // Filtre Catégorie
+      if (activeCat) {
+        constraints.push(where("IdCategorie", "==", activeCat));
+      }
       if (activeSearch) {
         constraints.push(where(searchField, ">=", activeSearch));
         constraints.push(where(searchField, "<=", activeSearch + "\uf8ff"));
@@ -112,10 +126,13 @@ export function useFirestoreHistory(collectionName, options = {}) {
   // Déclencheur : Si l'URL change, on recharge les données et synchronise les inputs
   useEffect(() => {
     loadData(page);
+    // Synchro des inputs avec l'URL (utile pour le bouton retour du navigateur)
     setSearchInput(activeSearch);
     setStartDate(activeStart);
     setEndDate(activeEnd);
-  }, [searchParams]); 
+    setSelectedGroup(activeGroup);
+    setSelectedCat(activeCat);
+  }, [searchParams]);
 
   return {
     data,
@@ -123,13 +140,16 @@ export function useFirestoreHistory(collectionName, options = {}) {
     page,
     hasNext,
     setPage,
-    // Formulaire
+    // États pour les inputs du FilterHistory
     searchInput, setSearchInput,
     startDate, setStartDate,
     endDate, setEndDate,
+    selectedGroup, setSelectedGroup,
+    selectedCat, setSelectedCat,
+    // Actions
     handleSearch,
     handleReset,
-    // Valeurs actives
-    activeSearch, activeStart, activeEnd
+    // Valeurs actives issues de l'URL
+    activeSearch, activeStart, activeEnd, activeGroup, activeCat
   };
 }

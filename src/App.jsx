@@ -23,6 +23,7 @@ import AdminCategories from "./pages/admin/AdminCategories";
 import AdminInventoryHistory from "./pages/admin/AdminInventoryHistory";
 import AdminCustomers from "./pages/admin/AdminCustomers";
 import AdminCustomerDetail from "./pages/admin/AdminCustomerDetail";
+import AdminGroups from "./pages/admin/AdminGroups";
 
 function App() {
   const location = useLocation();
@@ -57,6 +58,7 @@ function App() {
             <Route path="inventory/history" element={<AdminInventoryHistory />} />
             <Route path="customers" element={<AdminCustomers />} />
             <Route path="customers/:id" element={<AdminCustomerDetail />} />
+            <Route path="groups" element={<AdminGroups />} />
           </Route>
         </Route>
       </Routes>
