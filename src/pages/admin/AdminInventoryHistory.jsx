@@ -29,7 +29,7 @@ export default function AdminInventoryHistory() {
     selectedGroup, setSelectedGroup,
     selectedCat, setSelectedCat
   } = useFirestoreHistory("MouvementsStock", { 
-        pageSize: 7, 
+        pageSize: 10, 
         searchField: "Produit" 
       });
 

@@ -35,7 +35,7 @@ const ProductDetailModal = ({ isOpen, product, categoryName, onClose, onEdit }) 
                 {product.Nom}
               </h2>
               {Number(product.Poids) > 0 && (
-                <p className="text-xs text-slate-500 font-bold tracking-tighter uppercase">
+                <p className="text-xs text-slate-500 font-bold tracking-tighter">
                   {product.Poids}g / UNITÉ
                 </p>
               )}
