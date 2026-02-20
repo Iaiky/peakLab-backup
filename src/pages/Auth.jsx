@@ -51,13 +51,32 @@ export default function Auth() {
           lastName: formData.lastName,
           displayName: `${formData.firstName} ${formData.lastName}`,
           address: formData.address,
-          role: 'admin' // Par défaut
+          role: 'client' // Par défaut
         });
       }
-      navigate("/admin/inventory");
+      navigate("/");
     } catch (err) {
-      setError("Identifiants incorrects");
-      console.error(err);
+    console.error("Code d'erreur Firebase:", err.code);
+
+    // Gestion précise des messages d'erreur
+    switch (err.code) {
+      case 'auth/email-already-in-use':
+        setError("Cette adresse email est déjà associée à un compte.");
+        break;
+      case 'auth/invalid-email':
+        setError("L'adresse email n'est pas valide.");
+        break;
+      case 'auth/weak-password':
+        setError("Le mot de passe doit contenir au moins 6 caractères.");
+        break;
+      case 'auth/user-not-found':
+      case 'auth/wrong-password':
+      case 'auth/invalid-credential':
+        setError("Email ou mot de passe incorrect.");
+        break;
+      default:
+        setError("Une erreur est survenue. Veuillez réessayer.");
+    }
     } finally {
       setLoading(false);
     }
@@ -67,7 +86,7 @@ export default function Auth() {
     setError('');
     try {
       await googleLogin();
-      navigate("/admin/inventory");
+      navigate("/");
     } catch (err) {
       setError("Connexion Google annulée.");
     }

@@ -4,8 +4,16 @@ import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 
 export default function Navbar() {
-  const { isLoggedIn, user, logout } = useAuth();
+  const { user, logout } = useAuth();
   const { totalItems } = useCart();
+
+  const getInitials = () => {
+    if (user?.initiales) return user.initiales;
+    if (user?.displayName) {
+      return user.displayName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+    }
+    return "??";
+  };
 
   return (
     <nav className="fixed top-0 w-full z-50 bg-white/80 backdrop-blur-md border-b border-gray-100">
@@ -33,17 +41,25 @@ export default function Navbar() {
           </Link>
 
           {/* AUTHENTIFICATION */}
-          {isLoggedIn ? (
+          {user ? (
             <div className="flex items-center gap-3 pl-2 border-l border-slate-100">
               <Link to="/profile" className="flex items-center gap-2">
                 <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center text-white text-xs font-bold shadow-sm shadow-primary/20">
-                  {user?.initiales}
+                  {getInitials()}
                 </div>
                 <div className="hidden md:block text-right">
-                  <p className="text-xs font-bold text-slate-900 leading-none">{user?.name}</p>
+                  <p className="text-xs font-bold text-slate-900 leading-none">
+                    {user.displayName || user.name || "Mon Profil"}
+                  </p>
                 </div>
               </Link>
-              <button onClick={logout} className="p-2 text-slate-400 hover:text-red-500 transition-colors">
+              
+              {/* BOUTON DE DECONNEXION */}
+              <button 
+                onClick={logout} 
+                className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                title="Se déconnecter"
+              >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
                 </svg>

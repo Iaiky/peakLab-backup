@@ -50,8 +50,7 @@ export function AuthProvider({ children }) {
     await setDoc(doc(db, "Users", res.user.uid), {
       uid: res.user.uid,
       email,
-      role: "admin", // Tu peux changer par défaut
-      ...extraData,
+      ...extraData, 
       createdAt: new Date()
     });
     return res.user;
@@ -74,7 +73,7 @@ export function AuthProvider({ children }) {
       uid: res.user.uid,
       email: res.user.email,
       displayName: res.user.displayName,
-      role: "admin", // Ou client par défaut
+      role: "client", // Ou client par défaut
       createdAt: new Date()
     });
   }

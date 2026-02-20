@@ -1,6 +1,6 @@
 // src/components/AuthGuard.jsx
 import { Navigate, Outlet } from "react-router-dom";
-import { useAuth } from "../hooks/useAuth"; // Le hook qu'on a vu juste avant
+import { useAuth } from "../context/AuthContext";
 
 export const AuthGuard = () => {
   const { user, loading } = useAuth();
@@ -13,9 +13,9 @@ export const AuthGuard = () => {
     );
   }
 
-  // Si pas d'utilisateur connecté -> Direction la page de login
-  if (!user) {
-    return <Navigate to="/auth" replace />;
+  // Si pas connecté ou si le rôle n'est pas admin -> Redirection Accueil
+  if (!user || user.role !== 'admin') {
+    return <Navigate to="/" replace />;
   }
 
   // Si connecté -> On affiche les routes enfants (l'Outlet)

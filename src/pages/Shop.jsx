@@ -4,7 +4,6 @@ import ProductCard from "../components/ProductCard";
 import ProductModal from "../components/ProductModal";
 import products from "../assets/products"
 
-// ... tes imports ...
 
 export default function Shop() {
     const [selectedProduct, setSelectedProduct] = useState(null);
